@@ -98,6 +98,20 @@ def make_handler(service: Service, static_dir: str):
                     actor, role = self._identity()
                     del actor
                     self._json(200, {"events": service.audit(role)})
+                elif path == "/api/alerts":
+                    actor, role = self._identity()
+                    del actor
+                    query = parse_qs(urlparse(self.path).query)
+                    building = query.get("building", [None])[0]
+                    self._json(200, {"alerts": service.list_alerts(role, building)})
+                elif path.startswith("/api/alerts/"):
+                    alert_id = int(path.rsplit("/", 1)[-1])
+                    actor, role = self._identity()
+                    self._json(200, service.get_alert(alert_id, role))
+                elif path.startswith("/api/batches/"):
+                    batch_id = int(path.rsplit("/", 1)[-1])
+                    actor, role = self._identity()
+                    self._json(200, service.get_batch(batch_id, role))
                 else:
                     self._json(404, {"error": "not_found"})
             except Exception as exc:
@@ -119,6 +133,17 @@ def make_handler(service: Service, static_dir: str):
                     expected = body.get("expected_version")
                     self._json(200, service.transition(
                         item_id, target, expected, actor, role))
+                elif path.startswith("/api/items/") and path.endswith("/risk"):
+                    item_id = int(path.split("/")[3])
+                    self._json(200, service.update_item_risk(item_id, body, actor, role))
+                elif path == "/api/warnings/push":
+                    self._json(201, service.push_warnings(body, actor, role))
+                elif path.startswith("/api/alerts/") and path.endswith("/confirm"):
+                    alert_id = int(path.split("/")[3])
+                    self._json(200, service.confirm_release(alert_id, body, actor, role))
+                elif path.startswith("/api/batches/") and path.endswith("/retry"):
+                    batch_id = int(path.split("/")[3])
+                    self._json(200, service.retry_batch(batch_id, actor, role))
                 else:
                     self._json(404, {"error": "not_found"})
             except Exception as exc:

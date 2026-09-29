@@ -20,3 +20,42 @@ def validate_transition(current,target):
     if not can_transition(current,target): raise ConflictError(f"不能从{current}转换到{target}")
 def completion_blockers(target,open_records): return ["仍有未关闭事项"] if target in TERMINAL_STATES and open_records>0 else []
 def role_for_transition(target): return set(TRANSITION_ROLES.get(target,[]))
+# ===== 余震预警处置 =====
+ALERT_ENTITY='余震预警'; DISPOSITION_ENTITY='预警处置'; BATCH_ENTITY='预警推送批次'
+ALERT_LEVELS=list(SEVERITIES); ALERT_KINDS=['alert','release']
+ALERT_STATUSES=['active','release_pending','resumed']
+DISPOSITION_STATUSES=['paused','resumed','invalidated']
+BATCH_STATUSES=['queued','completed','partial','failed']
+BATCH_ITEM_STATUSES=['pending','ok','failed']
+CONFIRM_SLOTS=2; CONSTRUCTION_STATE='construction'
+ALERT_PUSH_ROLES=set(['assessor','structural_engineer'])
+ALERT_CONFIRM_ROLES=set(['structural_engineer','review_board'])
+RISK_UPDATE_ROLES=set(['assessor','structural_engineer'])
+# 风险重算门槛：预警等级越高，分值门槛越低（severe时同楼栋在施项目全部重新暂停）
+RECONSIDER_CUTOFF={'low':10,'medium':8,'high':6,'severe':0}
+def normalize_alert_level(value):
+    if value not in ALERT_LEVELS: raise ValidationError("level不在允许范围内")
+    return value
+def normalize_alert_kind(value):
+    if value not in ALERT_KINDS: raise ValidationError("kind必须是alert或release")
+    return value
+def is_under_construction(item): return item.get('status')==CONSTRUCTION_STATE
+def same_building(item, building):
+    building=(building or '').strip()
+    return bool(building) and (item.get('building') or '').strip()==building
+def initial_pause_required(item, building, alert_level):
+    # 预警首发保守处置：同楼栋在施项目一律先暂停
+    return is_under_construction(item) and same_building(item, building)
+def recalc_pause_required(item, alert_level):
+    # 风险参数更新后按新预警重算：等级与风险分值共同决定
+    if alert_level not in RECONSIDER_CUTOFF: raise ValidationError("unknown alert level")
+    if not is_under_construction(item): return False
+    score=priority_score(item['severity'],item.get('quantity',0.0),item.get('threshold',1.0))
+    return score>=RECONSIDER_CUTOFF[alert_level]
+def can_confirm_release(role, actor, prior_actors):
+    return role in ALERT_CONFIRM_ROLES and actor not in prior_actors
+def batch_result(item_statuses):
+    if not item_statuses: return BATCH_STATUSES[1]
+    failed=sum(1 for status in item_statuses if status=='failed')
+    if failed==len(item_statuses): return BATCH_STATUSES[3]
+    return BATCH_STATUSES[2] if failed else BATCH_STATUSES[1]

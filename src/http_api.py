@@ -98,6 +98,19 @@ def make_handler(service: Service, static_dir: str):
                     actor, role = self._identity()
                     del actor
                     self._json(200, {"events": service.audit(role)})
+                elif path == "/api/warnings":
+                    actor, role = self._identity()
+                    del actor
+                    qs = parse_qs(urlparse(self.path).query)
+                    status = qs.get("status", [None])[0]
+                    building = qs.get("building", [None])[0]
+                    self._json(200, {"warnings": service.list_warnings(
+                        role, status, building)})
+                elif path.startswith("/api/warnings/"):
+                    event_id = path.split("/")[3]
+                    actor, role = self._identity()
+                    del actor
+                    self._json(200, service.get_warning(event_id, role))
                 else:
                     self._json(404, {"error": "not_found"})
             except Exception as exc:
@@ -119,6 +132,29 @@ def make_handler(service: Service, static_dir: str):
                     expected = body.get("expected_version")
                     self._json(200, service.transition(
                         item_id, target, expected, actor, role))
+                elif path == "/api/warnings":
+                    self._json(201, service.push_warning(body, actor, role))
+                elif (path.startswith("/api/warnings/")
+                      and path.endswith("/release/confirm")):
+                    event_id = path.split("/")[3]
+                    self._json(200, service.confirm_release(event_id, actor, role))
+                elif path.startswith("/api/warnings/") and path.endswith("/retry"):
+                    event_id = path.split("/")[3]
+                    self._json(200, service.retry_warning(event_id, actor, role))
+                else:
+                    self._json(404, {"error": "not_found"})
+            except Exception as exc:
+                self._send_error(exc)
+
+        def do_PATCH(self) -> None:
+            try:
+                path = urlparse(self.path).path
+                actor, role = self._identity()
+                body = self._body()
+                parts = path.split("/")
+                if len(parts) == 4 and parts[1] == "api" and parts[2] == "items":
+                    item_id = int(parts[3])
+                    self._json(200, service.update_item(item_id, body, actor, role))
                 else:
                     self._json(404, {"error": "not_found"})
             except Exception as exc:

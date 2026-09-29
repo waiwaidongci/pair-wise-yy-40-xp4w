@@ -20,3 +20,36 @@ def validate_transition(current,target):
     if not can_transition(current,target): raise ConflictError(f"不能从{current}转换到{target}")
 def completion_blockers(target,open_records): return ["仍有未关闭事项"] if target in TERMINAL_STATES and open_records>0 else []
 def role_for_transition(target): return set(TRANSITION_ROLES.get(target,[]))
+
+# 预警处置规则
+WARNING_ENTITY='预警批次'
+WARNING_STATES=['active','release_pending','released','failed']
+RELEASE_CONFIRMATIONS_REQUIRED=2
+WARNING_PUSH_ROLES=set(['assessor','structural_engineer'])
+RELEASE_CONFIRM_ROLES=set(['assessor','structural_engineer','review_board'])
+PAUSE_ELIGIBLE_STATUS='construction'  # 同楼栋的在施项目先暂停
+
+def can_push_warning(role): return role in WARNING_PUSH_ROLES
+def can_confirm_release(role): return role in RELEASE_CONFIRM_ROLES
+def can_retry_warning(role): return role in WARNING_PUSH_ROLES
+
+def pause_eligible(item):
+    """在施项目才暂停：状态为施工中。"""
+    return item.get('status')==PAUSE_ELIGIBLE_STATUS
+
+def warning_allows_confirmation(status):
+    return status in ('active','release_pending')
+
+def warning_is_terminal(status):
+    return status=='released'
+
+def next_confirmation_seq(confirmation_count):
+    return confirmation_count+1
+
+def recovery_invalidates(status):
+    """风险参数更新时，未完成的恢复（已确认但未解除）立即失效。"""
+    return status=='release_pending'
+
+def recalculates_on_update(status):
+    """未终结的预警都按新参数重算。"""
+    return status in ('active','release_pending')
